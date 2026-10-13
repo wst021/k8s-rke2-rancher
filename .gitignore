@@ -1,0 +1,6 @@
+# 大文件/制品目录
+images/*.tar.gz
+images/*.tar.zst
+images/*.tar
+images/*.tgz
+*.iso
