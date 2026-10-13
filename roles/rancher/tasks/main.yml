@@ -1,0 +1,87 @@
+---
+# ========== 1. 安装 helm ==========
+- name: 检查 helm 是否已安装
+  ansible.builtin.command: helm version --short
+  register: helm_check
+  failed_when: false
+  changed_when: false
+
+- name: 安装 helm
+  ansible.builtin.shell: |
+    curl -fsSL -o /tmp/get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+    chmod 700 /tmp/get_helm.sh && /tmp/get_helm.sh --version {{ helm_version }}
+  when: helm_check.rc != 0
+  environment:
+    KUBECONFIG: /root/.kube/config
+
+# ========== 2. 安装 cert-manager ==========
+- name: 添加 jetstack helm 仓库
+  kubernetes.core.helm_repository:
+    name: jetstack
+    repo_url: https://charts.jetstack.io
+  environment:
+    KUBECONFIG: /root/.kube/config
+
+- name: 部署 cert-manager
+  kubernetes.core.helm:
+    name: cert-manager
+    chart_ref: jetstack/cert-manager
+    chart_version: "{{ cert_manager_version }}"
+    namespace: cert-manager
+    create_namespace: true
+    kubeconfig: /root/.kube/config
+    values:
+      crds:
+        enabled: true
+    wait: true
+    timeout: 10m0s
+
+- name: 等待 cert-manager 就绪
+  ansible.builtin.command: >
+    kubectl -n cert-manager rollout status deploy/cert-manager --timeout=300s
+  environment:
+    KUBECONFIG: /root/.kube/config
+  changed_when: false
+
+# ========== 3. 安装 Rancher ==========
+- name: 添加 rancher helm 仓库
+  kubernetes.core.helm_repository:
+    name: rancher-stable
+    repo_url: https://releases.rancher.com/server-charts/stable
+  environment:
+    KUBECONFIG: /root/.kube/config
+
+- name: 部署 Rancher
+  kubernetes.core.helm:
+    name: rancher
+    chart_ref: rancher-stable/rancher
+    chart_version: "{{ rancher_version }}"
+    namespace: cattle-system
+    create_namespace: true
+    kubeconfig: /root/.kube/config
+    values:
+      hostname: "{{ rancher_hostname }}"
+      replicas: "{{ rancher_replicas }}"
+      bootstrapPassword: "{{ rancher_bootstrap_password }}"
+      ingress:
+        tls:
+          source: rancher   # 自签名证书，测试环境足够
+    wait: true
+    timeout: 20m0s
+
+- name: 等待 Rancher deployment 就绪
+  ansible.builtin.command: >
+    kubectl -n cattle-system rollout status deploy/rancher --timeout=600s
+  environment:
+    KUBECONFIG: /root/.kube/config
+  changed_when: false
+
+- name: 打印 Rancher 访问信息
+  ansible.builtin.debug:
+    msg:
+      - "Rancher URL : https://{{ rancher_hostname }}"
+      - "账号        : admin"
+      - "密码        : {{ rancher_bootstrap_password }}"
+      - "如内网无法解析 sslip.io，请在浏览器所在机器 /etc/hosts 加："
+      - "  192.168.230.140 {{ rancher_hostname }}"
+

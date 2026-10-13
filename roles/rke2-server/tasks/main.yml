@@ -1,0 +1,74 @@
+---
+- name: 检查 rke2 是否已安装
+  ansible.builtin.stat:
+    path: /usr/local/bin/rke2
+  register: rke2_binary
+
+- name: 通过 tar 方式安装 rke2-server
+  ansible.builtin.shell: |
+    curl -sfL https://get.rke2.io | \
+      INSTALL_RKE2_METHOD={{ rke2_install_method }} \
+      INSTALL_RKE2_VERSION={{ rke2_version }} \
+      INSTALL_RKE2_TYPE=server \
+      sh -
+  args:
+    creates: /usr/local/bin/rke2
+  when: not rke2_binary.stat.exists
+
+- name: 渲染 rke2 server 配置
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: /etc/rancher/rke2/config.yaml
+    mode: '0600'
+  notify: restart_rke2_server
+
+- name: 启动并启用 rke2-server
+  ansible.builtin.systemd:
+    name: rke2-server
+    state: started
+    enabled: true
+  register: rke2_start
+
+- name: 等待 rke2-server 就绪（最多 10 分钟）
+  ansible.builtin.shell: |
+    /var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml get nodes 2>/dev/null
+  register: kubectl_out
+  until: kubectl_out.rc == 0
+  retries: 60
+  delay: 10
+  changed_when: false
+
+- name: 分发 kubectl 到系统路径
+  ansible.builtin.file:
+    src: /var/lib/rancher/rke2/bin/kubectl
+    dest: /usr/local/bin/kubectl
+    state: link
+    force: true
+
+- name: 配置 root 的 kubeconfig
+  ansible.builtin.file:
+    path: /root/.kube
+    state: directory
+    mode: '0755'
+
+- name: 拷贝 kubeconfig 到 ~/.kube/config
+  ansible.builtin.copy:
+    src: /etc/rancher/rke2/rke2.yaml
+    dest: /root/.kube/config
+    remote_src: true
+    mode: '0600'
+
+- name: 读取 node-token 供 agent 使用
+  ansible.builtin.slurp:
+    src: /var/lib/rancher/rke2/server/node-token
+  register: node_token_b64
+  run_once: true
+
+- name: 将 node-token 存为 fact 供 agent play 使用
+  ansible.builtin.set_fact:
+    cluster_node_token: "{{ node_token_b64.content | b64decode | trim }}"
+  delegate_to: "{{ item }}"
+  delegate_facts: true
+  loop: "{{ groups['workers'] }}"
+  run_once: true
+

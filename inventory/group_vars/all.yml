@@ -1,0 +1,31 @@
+---
+# ====== 集群全局变量（按需修改） ======
+rke2_version: "v1.36.3+rke2r1"
+rke2_install_method: "tar"          # Kylin 必须 tar，避免 rpm 仓库兼容问题
+cluster_token: "kylin-test-cluster-token-2026"
+master_ip: "192.168.230.140"
+master_hostname: "k8smaster"
+
+# ====== 网段规划 ======
+cluster_cidr: "10.244.0.0/16"
+service_cidr: "10.96.0.0/12"
+cluster_dns: "10.244.0.10"
+
+# ====== CNI 选择 ======
+cni: "canal"
+
+# ====== Kylin 系统参数 ======
+enable_firewalld_disable: true
+enable_selinux_disable: true
+#rke2_selinux: false
+
+# ====== Rancher ======
+rancher_hostname: "192.168.230.140.sslip.io"   # 内网无 DNS 时的魔法域名
+rancher_bootstrap_password: "Rancher@2026Test"
+rancher_version: "2.15.2"
+rancher_replicas: 1
+cert_manager_version: "v1.18.2"
+
+# ====== Helm ======
+helm_version: "v3.16.4"
+

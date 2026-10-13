@@ -1,0 +1,96 @@
+---
+# ========= 1. 所有节点：系统初始化 =========
+- name: 所有节点系统初始化
+  hosts: all
+  become: true
+  roles:
+    - common
+
+# ========= 2. Master 节点：初始化 RKE2 Server =========
+- name: Master 节点安装 rke2-server
+  hosts: master
+  become: true
+  roles:
+    - rke2-server
+
+# ========= 3. Worker 节点：加入集群（rke2-agent） =========
+- name: Worker 节点安装 rke2-agent 并加入集群
+  hosts: workers
+  become: true
+  pre_tasks:                # ← 加在这里，与 roles 同级
+    - name: 读取 master 节点 token
+      ansible.builtin.slurp:
+        src: /var/lib/rancher/rke2/server/node-token
+      delegate_to: "{{ groups['k8smaster'][0] }}"
+      run_once: true
+      register: _node_token_raw
+      no_log: true
+
+    - name: 将 token 设置为本机变量
+      ansible.builtin.set_fact:
+        cluster_node_token: "{{ _node_token_raw.content | b64decode | trim }}"
+      no_log: true
+  roles:
+    - rke2-agent
+
+# ========= 4. Master 节点：部署 Rancher =========
+- name: Master 节点部署 Rancher
+  hosts: master
+  become: true
+  roles:
+    - rancher
+
+# ========= 5. 全链路验证 =========
+- name: 全链路验证
+  hosts: master
+  become: true
+  tasks:
+    - name: 显示节点状态
+      ansible.builtin.command: kubectl get nodes -o wide
+      environment:
+        KUBECONFIG: /root/.kube/config
+      register: nodes_out
+      changed_when: false
+
+    - name: 显示集群系统 Pod
+      ansible.builtin.command: kubectl get pods -A
+      environment:
+        KUBECONFIG: /root/.kube/config
+      register: pods_out
+      changed_when: false
+
+    - name: 部署测试应用 nginx
+      ansible.builtin.shell: |
+        kubectl create deployment nginx-test --image=nginx:alpine --replicas=2 2>/dev/null || true
+        kubectl expose deployment nginx-test --port=80 --type=NodePort 2>/dev/null || true
+        sleep 15
+      environment:
+        KUBECONFIG: /root/.kube/config
+      changed_when: false
+
+    - name: 显示测试 Pod 状态
+      ansible.builtin.command: kubectl get pods -o wide -l app=nginx-test
+      environment:
+        KUBECONFIG: /root/.kube/config
+      register: test_pods
+      changed_when: false
+
+    - name: 显示测试 Service
+      ansible.builtin.command: kubectl get svc nginx-test
+      environment:
+        KUBECONFIG: /root/.kube/config
+      register: test_svc
+      changed_when: false
+
+    - name: 打印汇总
+      ansible.builtin.debug:
+        msg:
+          - "========= 节点状态 ========="
+          - "{{ nodes_out.stdout_lines }}"
+          - "========= 系统 Pod ========="
+          - "{{ pods_out.stdout_lines }}"
+          - "========= 测试 Pod ========="
+          - "{{ test_pods.stdout_lines }}"
+          - "========= 测试 Service ========="
+          - "{{ test_svc.stdout_lines }}"
+

@@ -1,0 +1,28 @@
+# RKE2 Server 配置（由 Ansible 渲染）
+token: {{ cluster_token }}
+node-name: {{ node_name }}
+write-kubeconfig-mode: "0644"
+
+# TLS SAN 必须包含本机 IP 与主机名，供 Rancher Agent / kubectl 访问
+tls-san:
+  - {{ master_ip }}
+  - {{ master_hostname }}
+  - {{ ansible_host }}
+
+# CNI 与网段
+cni: {{ cni }}
+cluster-cidr: "{{ cluster_cidr }}"
+service-cidr: "{{ service_cidr }}"
+cluster-dns: {{ cluster_dns }}
+
+# 测试环境允许 master 调度工作负载，不配置 node-taint
+
+# 精简测试环境的可选组件
+disable:
+  - rke2-snapshot-controller-crd
+  - rke2-snapshot-controller
+  - rke2-snapshot-validation-webhook
+
+# 运行时
+selinux: false
+
